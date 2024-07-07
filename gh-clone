@@ -1,35 +1,45 @@
 #!/usr/bin/env bash
-set -e
 
-echo "Hello gh-clone!"
+set -euo pipefail
 
-# Snippets to help get started:
+if ! command -v perl &> /dev/null; then
+    echo "Perl is required to run this script. Please install perl."
+    exit 1
+fi
 
-# Determine if an executable is in the PATH
-# if ! type -p ruby >/dev/null; then
-#   echo "Ruby not found on the system" >&2
-#   exit 1
-# fi
+if [[ $# -eq 0 ]]; then
+    echo "Usage: gh clone <repo> [flags]"
+    exit 1
+fi
 
-# Pass arguments through to another command
-# gh issue list "$@" -R cli/cli
+# load config file
+if [[ ! -f ~/.gh-clone-config ]]; then
+    read -rp "First run. Enter the location where you want to clone repositories: " location
+    echo "location=$location" > ~/.gh-clone-config
+fi
 
-# Using the gh api command to retrieve and format information
-# QUERY='
-#   query($endCursor: String) {
-#     viewer {
-#       repositories(first: 100, after: $endCursor) {
-#         nodes {
-#           nameWithOwner
-#           stargazerCount
-#         }
-#       }
-#     }
-#   }
-# '
-# TEMPLATE='
-#   {{- range $repo := .data.viewer.repositories.nodes -}}
-#     {{- printf "name: %s - stargazers: %v\n" $repo.nameWithOwner $repo.stargazerCount -}}
-#   {{- end -}}
-# '
-# exec gh api graphql -f query="${QUERY}" --paginate --template="${TEMPLATE}"
+# shellcheck disable=SC1090
+source ~/.gh-clone-config
+mkdir -p "$location"
+
+if [[ "$1" =~ ^[^/]+/[^/]+$ ]]; then
+    # gh clone owner/repo
+    owner=$(cut -d/ -f1 <<< "$1")
+    repo=$(cut -d/ -f2 <<< "$1")
+elif [[ "$1" =~ ^[^/]+$ ]]; then
+    # gh clone repo
+    repo=$1
+    if [[ $PWD == $location/* ]]; then
+        # infer owner from PWD
+        owner=$(perl -le 'use File::Spec; print File::Spec->abs2rel(@ARGV)' "$PWD" "$location" | cut -d'/' -f1)
+    else
+        # infer owner from logged in user
+        owner=$(gh api user | jq -r .login)
+    fi
+else
+    echo "Invalid repo name - $1. Must be in the format repo or owner/repo."
+    exit 1
+fi
+
+gh repo clone "$owner/$repo" "$location/$owner/$repo" "${@:2}"
+echo "Cloned to $location/$owner/$repo"
